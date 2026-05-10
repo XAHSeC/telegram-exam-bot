@@ -376,7 +376,7 @@ async def _finish_exam(callback: CallbackQuery, state: FSMContext):
         text += f"💪 Не расстраивайтесь! Минимальный балл: {int(config.PASS_THRESHOLD * 100)}%\nПопробуйте ещё раз."
 
     try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=results_kb())
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=results_kb(session_id))
     except Exception:
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=results_kb())
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=results_kb(session_id))
     await callback.answer()

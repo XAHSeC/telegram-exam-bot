@@ -404,6 +404,47 @@ async def get_today_attempts(telegram_id: int) -> int:
             return row[0] if row else 0
 
 
+async def get_session_errors(session_id: int) -> List[Dict]:
+    """Return all incorrectly answered questions for a completed session."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT
+                   esq.question_id,
+                   esq.selected_answer_id,
+                   esq.order_num,
+                   q.text        AS question_text,
+                   q.explanation AS explanation,
+                   q.image_path  AS image_path
+               FROM exam_session_questions esq
+               JOIN questions q ON q.id = esq.question_id
+               WHERE esq.session_id = ? AND esq.is_correct = 0
+               ORDER BY esq.order_num""",
+            (session_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        errors = []
+        for row in rows:
+            item = dict(row)
+            # fetch all answers for this question
+            async with db.execute(
+                "SELECT id, text, is_correct FROM answers WHERE question_id = ?",
+                (item["question_id"],),
+            ) as ac:
+                item["answers"] = [dict(a) for a in await ac.fetchall()]
+            # find what user selected
+            selected = next(
+                (a for a in item["answers"] if a["id"] == item["selected_answer_id"]),
+                None,
+            )
+            item["selected_text"] = selected["text"] if selected else "—"
+            correct = next((a for a in item["answers"] if a["is_correct"]), None)
+            item["correct_text"] = correct["text"] if correct else "—"
+            errors.append(item)
+        return errors
+
+
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
 async def log_action(telegram_id: int, action: str, details: str = "") -> None:
