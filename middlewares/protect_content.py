@@ -10,6 +10,6 @@ class ProtectContentMiddleware(BaseRequestMiddleware):
         bot: Bot,
         method: TelegramMethod,
     ) -> Response:
-        if hasattr(method, "protect_content") and method.protect_content is None:
+        if hasattr(method, "protect_content"):
             method.protect_content = True
         return await make_request(bot, method)
