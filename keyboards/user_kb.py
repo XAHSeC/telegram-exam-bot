@@ -70,20 +70,7 @@ def back_to_menu_kb() -> InlineKeyboardMarkup:
 
 def results_kb(session_id: int = 0) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    if session_id:
-        builder.button(text="📋 Разбор ошибок", callback_data=f"review_errors:{session_id}")
     builder.button(text="✅ Начать новый экзамен", callback_data="start_exam")
     builder.button(text="🏠 Главное меню", callback_data="main_menu")
     builder.adjust(1)
-    return builder.as_markup()
-
-
-def errors_nav_kb(session_id: int, current: int, total: int) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    if current > 0:
-        builder.button(text="◀️ Пред.", callback_data=f"err_nav:{session_id}:{current - 1}")
-    if current < total - 1:
-        builder.button(text="След. ▶️", callback_data=f"err_nav:{session_id}:{current + 1}")
-    builder.button(text="🏠 Главное меню", callback_data="main_menu")
-    builder.adjust(2)
     return builder.as_markup()
