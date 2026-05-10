@@ -8,7 +8,7 @@ from config import config
 from database import init_db
 from handlers import main_router
 from admin import admin_router
-from middlewares import RateLimitMiddleware, LoggingMiddleware
+from middlewares import RateLimitMiddleware, LoggingMiddleware, ProtectContentMiddleware
 from utils.logger import logger
 
 
@@ -48,6 +48,7 @@ async def main():
         token=config.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    bot.session.middleware(ProtectContentMiddleware())
 
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
