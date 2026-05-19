@@ -228,12 +228,20 @@ async def _send_question(callback: CallbackQuery, state: FSMContext, index: int)
     answers = q.get("answers", [])
     q_category = q.get("category", "")
 
+    letters = ["A", "B", "C", "D", "E", "F"]
+    answers_text = "\n".join(
+        f"<b>{letters[i]})</b> {ans['text']}"
+        for i, ans in enumerate(answers)
+        if i < len(letters)
+    )
+
     bar = progress_bar(index + 1, total)
     header = (
         f"📝 <b>Вопрос {index + 1} из {total}</b>\n"
         f"{bar}\n"
         f"{'🏷 ' + q_category if q_category else ''}\n\n"
-        f"{q_text}"
+        f"{q_text}\n\n"
+        f"{answers_text}"
     )
 
     kb = exam_answer_kb(answers, session_id, q_id)

@@ -33,11 +33,11 @@ def exam_answer_kb(answers: list, session_id: int, question_id: int) -> InlineKe
     for i, ans in enumerate(answers):
         label = letters[i] if i < len(letters) else str(i + 1)
         builder.button(
-            text=f"{label}) {ans['text']}",
+            text=label,
             callback_data=f"answer:{session_id}:{question_id}:{ans['id']}",
         )
     builder.button(text="🚫 Завершить экзамен", callback_data=f"finish_exam:{session_id}")
-    builder.adjust(1)
+    builder.adjust(5, 1)
     return builder.as_markup()
 
 

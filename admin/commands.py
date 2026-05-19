@@ -6,6 +6,9 @@ from aiogram.fsm.state import State, StatesGroup
 from database.db import (
     add_user, remove_user, block_user, unblock_user,
     get_all_users, get_stats, get_user, log_action,
+    activate_question, deactivate_question, delete_question,
+    search_questions, get_questions_page, get_total_questions_count,
+    get_question_with_answers,
 )
 from keyboards.admin_kb import admin_panel_kb, admin_user_actions_kb, confirm_delete_kb
 from config import config
@@ -322,5 +325,215 @@ async def cb_admin_back(callback: CallbackQuery):
         "👨‍💼 <b>Панель администратора</b>",
         parse_mode="HTML",
         reply_markup=admin_panel_kb(),
+    )
+    await callback.answer()
+
+
+# ─── Question management ──────────────────────────────────────────────────────
+
+def _questions_kb(questions, offset, total):
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    for q in questions:
+        status = "✅" if q["is_active"] else "🚫"
+        label = f"{status} #{q['id']} {q['text'][:35]}..."
+        builder.button(text=label, callback_data=f"qmgr_view:{q['id']}")
+    builder.adjust(1)
+    nav = []
+    if offset > 0:
+        nav.append(("◀️ Назад", f"qmgr_page:{max(0, offset-10)}"))
+    if offset + 10 < total:
+        nav.append(("▶️ Далее", f"qmgr_page:{offset+10}"))
+    for label, cb in nav:
+        builder.button(text=label, callback_data=cb)
+    builder.button(text="🔍 Поиск", callback_data="qmgr_search_prompt")
+    builder.button(text="◀️ Меню", callback_data="admin_back")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+@router.message(Command("questions"))
+@admin_only
+async def cmd_questions(message: Message):
+    total = await get_total_questions_count()
+    qs = await get_questions_page(offset=0, limit=10)
+    await message.answer(
+        f"❓ <b>Вопросы в базе ({total} всего)</b>\nВыберите вопрос:",
+        parse_mode="HTML",
+        reply_markup=_questions_kb(qs, 0, total),
+    )
+
+
+@router.callback_query(F.data.startswith("qmgr_page:"))
+@admin_only
+async def cb_qmgr_page(callback: CallbackQuery):
+    offset = int(callback.data.split(":")[1])
+    total = await get_total_questions_count()
+    qs = await get_questions_page(offset=offset, limit=10)
+    await callback.message.edit_text(
+        f"❓ <b>Вопросы в базе ({total} всего)</b>\nВыберите вопрос:",
+        parse_mode="HTML",
+        reply_markup=_questions_kb(qs, offset, total),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("qmgr_view:"))
+@admin_only
+async def cb_qmgr_view(callback: CallbackQuery):
+    qid = int(callback.data.split(":")[1])
+    q = await get_question_with_answers(qid)
+    if not q:
+        await callback.answer("Вопрос не найден.", show_alert=True)
+        return
+
+    status = "✅ Активен" if q["is_active"] else "🚫 Скрыт"
+    answers_text = "\n".join(
+        f"  {'✔' if a['is_correct'] else '—'} {a['text'][:60]}"
+        for a in q["answers"]
+    )
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    if q["is_active"]:
+        builder.button(text="🚫 Скрыть вопрос", callback_data=f"qmgr_hide:{qid}")
+    else:
+        builder.button(text="✅ Активировать", callback_data=f"qmgr_activate:{qid}")
+    builder.button(text="🗑 Удалить навсегда", callback_data=f"qmgr_del_prompt:{qid}")
+    builder.button(text="◀️ К списку", callback_data="qmgr_page:0")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        f"❓ <b>Вопрос #{qid}</b> [{status}]\n\n"
+        f"<b>{q['text'][:300]}</b>\n\n"
+        f"Варианты:\n{answers_text}\n\n"
+        f"Категория: {q.get('category','—')}",
+        parse_mode="HTML",
+        reply_markup=builder.as_markup(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("qmgr_hide:"))
+@admin_only
+async def cb_qmgr_hide(callback: CallbackQuery):
+    qid = int(callback.data.split(":")[1])
+    ok = await deactivate_question(qid)
+    await log_action(callback.from_user.id, "hide_question", f"qid={qid}")
+    await callback.answer("🚫 Вопрос скрыт из экзаменов" if ok else "Уже скрыт", show_alert=True)
+    callback.data = f"qmgr_view:{qid}"
+    await cb_qmgr_view(callback)
+
+
+@router.callback_query(F.data.startswith("qmgr_activate:"))
+@admin_only
+async def cb_qmgr_activate(callback: CallbackQuery):
+    qid = int(callback.data.split(":")[1])
+    await activate_question(qid)
+    await log_action(callback.from_user.id, "activate_question", f"qid={qid}")
+    await callback.answer("✅ Вопрос активирован", show_alert=True)
+    callback.data = f"qmgr_view:{qid}"
+    await cb_qmgr_view(callback)
+
+
+@router.callback_query(F.data.startswith("qmgr_del_prompt:"))
+@admin_only
+async def cb_qmgr_del_prompt(callback: CallbackQuery):
+    qid = int(callback.data.split(":")[1])
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Да, удалить", callback_data=f"qmgr_del_confirm:{qid}")
+    builder.button(text="❌ Отмена", callback_data=f"qmgr_view:{qid}")
+    builder.adjust(2)
+    await callback.message.edit_text(
+        f"🗑 Удалить вопрос #{qid} навсегда?\n\nЭто действие нельзя отменить.",
+        reply_markup=builder.as_markup(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("qmgr_del_confirm:"))
+@admin_only
+async def cb_qmgr_del_confirm(callback: CallbackQuery):
+    qid = int(callback.data.split(":")[1])
+    ok = await delete_question(qid)
+    await log_action(callback.from_user.id, "delete_question", f"qid={qid}")
+    await callback.answer("🗑 Вопрос удалён" if ok else "Не найден", show_alert=True)
+    total = await get_total_questions_count()
+    qs = await get_questions_page(offset=0, limit=10)
+    await callback.message.edit_text(
+        f"❓ <b>Вопросы в базе ({total} всего)</b>\nВыберите вопрос:",
+        parse_mode="HTML",
+        reply_markup=_questions_kb(qs, 0, total),
+    )
+
+
+# ─── /hide_question and /del_question text commands ──────────────────────────
+
+@router.message(Command("hide_question"))
+@admin_only
+async def cmd_hide_question(message: Message):
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("Использование: /hide_question <id>")
+        return
+    try:
+        qid = int(parts[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом.")
+        return
+    ok = await deactivate_question(qid)
+    await log_action(message.from_user.id, "hide_question", f"qid={qid}")
+    if ok:
+        await message.answer(f"🚫 Вопрос #{qid} скрыт из экзаменов.")
+    else:
+        await message.answer(f"❌ Вопрос #{qid} не найден или уже скрыт.")
+
+
+@router.message(Command("del_question"))
+@admin_only
+async def cmd_del_question(message: Message):
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("Использование: /del_question <id>")
+        return
+    try:
+        qid = int(parts[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом.")
+        return
+    ok = await delete_question(qid)
+    await log_action(message.from_user.id, "delete_question", f"qid={qid}")
+    if ok:
+        await message.answer(f"🗑 Вопрос #{qid} удалён навсегда.")
+    else:
+        await message.answer(f"❌ Вопрос #{qid} не найден.")
+
+
+@router.message(Command("find_question"))
+@admin_only
+async def cmd_find_question(message: Message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("Использование: /find_question <текст>")
+        return
+    query = parts[1]
+    results = await search_questions(query)
+    if not results:
+        await message.answer("❌ Вопросы не найдены.")
+        return
+    lines = [f"🔍 Найдено {len(results)} вопрос(ов):\n"]
+    for q in results:
+        status = "✅" if q["is_active"] else "🚫"
+        lines.append(f"{status} <code>#{q['id']}</code> {q['text'][:80]}...")
+    lines.append("\nЧтобы скрыть: /hide_question &lt;id&gt;\nЧтобы удалить: /del_question &lt;id&gt;")
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "qmgr_search_prompt")
+@admin_only
+async def cb_qmgr_search_prompt(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "🔍 Введите текст для поиска вопроса командой:\n/find_question &lt;текст&gt;",
+        parse_mode="HTML",
     )
     await callback.answer()

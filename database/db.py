@@ -277,6 +277,61 @@ async def get_questions_count() -> int:
             return row[0] if row else 0
 
 
+async def activate_question(question_id: int) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE questions SET is_active = 1 WHERE id = ?", (question_id,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def deactivate_question(question_id: int) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE questions SET is_active = 0 WHERE id = ? AND is_active = 1",
+            (question_id,),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def delete_question(question_id: int) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM questions WHERE id = ?", (question_id,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def search_questions(query: str, limit: int = 10) -> List[Dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, text, category, is_active FROM questions WHERE text LIKE ? LIMIT ?",
+            (f"%{query}%", limit),
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_questions_page(offset: int = 0, limit: int = 10) -> List[Dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, text, category, is_active FROM questions ORDER BY id LIMIT ? OFFSET ?",
+            (limit, offset),
+        ) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_total_questions_count() -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT COUNT(*) FROM questions") as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
+
+
 # ─── Exam session operations ──────────────────────────────────────────────────
 
 async def create_exam_session(telegram_id: int, question_ids: List[int]) -> int:
